@@ -1,167 +1,153 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
+	"fmt"
 	"net/http"
-	"time"
-	"io"
 	"os"
 	"path/filepath"
-	"fmt"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
 )
 
 var jwtKey = []byte(os.Getenv("JWT_SECRET"))
 
-type contextKey string
-const userContextKey = contextKey("user")
-
 // signupHandler creates a new user
-func signupHandler(w http.ResponseWriter, r *http.Request) {
+func signupHandler(c *gin.Context) {
 	var creds Credentials
-	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.BindJSON(&creds); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(creds.Password), 8)
 	if err != nil {
-		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 		return
 	}
 
+	println("creds", creds.Email, creds.Password)
 	_, err = db.Exec("INSERT INTO users (email, password) VALUES ($1, $2)", creds.Email, string(hashedPassword))
 	if err != nil {
-		http.Error(w, "User already exists", http.StatusConflict)
+		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "User created successfully"})
+	c.JSON(http.StatusCreated, gin.H{"message": "User created successfully"})
 }
-
 
 // loginHandler authenticates a user and returns a JWT
-func loginHandler(w http.ResponseWriter, r *http.Request) {
-    var creds Credentials
-    if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-        http.Error(w, "Invalid request body", http.StatusBadRequest)
-        return
-    }
+func loginHandler(c *gin.Context) {
+	var creds Credentials
+	if err := c.BindJSON(&creds); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
 
-    var user User
-    row := db.QueryRow("SELECT id, email, password, avatar_url FROM users WHERE email = $1", creds.Email)
-    if err := row.Scan(&user.ID, &user.Email, &user.Password, &user.AvatarURL); err != nil {
-        http.Error(w, "Invalid credentials", http.StatusUnauthorized)
-        return
-    }
+	var user User
+	row := db.QueryRow("SELECT id, email, password, avatar_url FROM users WHERE email = $1", creds.Email)
+	if err := row.Scan(&user.ID, &user.Email, &user.Password, &user.AvatarURL); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
 
-    if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)); err != nil {
-        http.Error(w, "Invalid credentials", http.StatusUnauthorized)
-        return
-    }
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
 
-    expirationTime := time.Now().Add(24 * time.Hour)
-    claims := &Claims{
-        UserID: user.ID,
-        RegisteredClaims: jwt.RegisteredClaims{
-            ExpiresAt: jwt.NewNumericDate(expirationTime),
-        },
-    }
+	expirationTime := time.Now().Add(24 * time.Hour)
+	claims := &Claims{
+		UserID: user.ID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+		},
+	}
 
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-    tokenString, err := token.SignedString(jwtKey)
-    if err != nil {
-        http.Error(w, "Failed to create token", http.StatusInternalServerError)
-        return
-    }
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create token"})
+		return
+	}
 
-	w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
+	c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
 
-
 // getHomeContentHandler serves dynamic content for the home page
-func getHomeContentHandler(w http.ResponseWriter, r *http.Request) {
+func getHomeContentHandler(c *gin.Context) {
 	media := []Media{
-		{ID: 1, Title: "Exploring the Alps", Type: "image", URL: "https://placehold.co/600x400/000000/FFFFFF?text=Alps"},
+		{ID: 1, Title: "Exploring the Alps with Gin", Type: "image", URL: "https://placehold.co/600x400/000000/FFFFFF?text=Alps"},
 		{ID: 2, Title: "Ocean Documentary", Type: "video", URL: "https://placehold.co/600x400/0000FF/FFFFFF?text=Video"},
 		{ID: 3, Title: "Annual Report 2024", Type: "document", URL: "#"},
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(media)
+	c.JSON(http.StatusOK, media)
 }
 
-
 // dashboardHandler serves user-specific data
-func dashboardHandler(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(userContextKey).(User)
-    if !ok {
-        http.Error(w, "User not found in context", http.StatusInternalServerError)
-        return
-    }
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+func dashboardHandler(c *gin.Context) {
+	userCtx, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found in context"})
+		return
+	}
+
+	user, ok := userCtx.(User)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user type in context"})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
 }
 
 // uploadAvatarHandler handles user avatar uploads
-func uploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
-    user, ok := r.Context().Value(userContextKey).(User)
-    if !ok {
-        http.Error(w, "User not found in context", http.StatusInternalServerError)
-        return
-    }
+func uploadAvatarHandler(c *gin.Context) {
+	userCtx, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found in context"})
+		return
+	}
+	user := userCtx.(User) // We can be reasonably sure of the type here
 
-    r.ParseMultipartForm(10 << 20) // 10 MB
-    file, handler, err := r.FormFile("avatar")
-    if err != nil {
-        http.Error(w, "Error retrieving the file", http.StatusBadRequest)
-        return
-    }
-    defer file.Close()
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Error retrieving the file"})
+		return
+	}
 
-    // Create uploads directory if it doesn't exist
-    os.MkdirAll("./uploads", os.ModePerm)
+	// Create uploads directory if it doesn't exist
+	os.MkdirAll("./uploads", os.ModePerm)
 
-    // Create a unique filename
-    ext := filepath.Ext(handler.Filename)
-    fileName := fmt.Sprintf("%d%s", user.ID, ext)
-    filePath := filepath.Join("./uploads", fileName)
-    
-    dst, err := os.Create(filePath)
-    if err != nil {
-        http.Error(w, "Unable to create the file", http.StatusInternalServerError)
-        return
-    }
-    defer dst.Close()
+	// Create a unique filename
+	ext := filepath.Ext(file.Filename)
+	fileName := fmt.Sprintf("%d%s", user.ID, ext)
+	filePath := filepath.Join("./uploads", fileName)
 
-    _, err = io.Copy(dst, file)
-    if err != nil {
-        http.Error(w, "Unable to save the file", http.StatusInternalServerError)
-        return
-    }
+	// Save the file
+	if err := c.SaveUploadedFile(file, filePath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to save the file"})
+		return
+	}
 
-    avatarURL := fmt.Sprintf("/uploads/%s", fileName)
-    _, err = db.Exec("UPDATE users SET avatar_url = $1 WHERE id = $2", avatarURL, user.ID)
-    if err != nil {
-        http.Error(w, "Failed to update user avatar URL", http.StatusInternalServerError)
-        return
-    }
+	avatarURL := fmt.Sprintf("/uploads/%s", fileName)
+	_, err = db.Exec("UPDATE users SET avatar_url = $1 WHERE id = $2", avatarURL, user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user avatar URL"})
+		return
+	}
 
-	w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{"avatarUrl": avatarURL})
+	c.JSON(http.StatusOK, gin.H{"avatarUrl": avatarURL})
 }
 
-
 // jwtMiddleware protects routes that require authentication
-func jwtMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tokenStr := r.Header.Get("Authorization")
+func jwtMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenStr := c.GetHeader("Authorization")
 		if tokenStr == "" {
-			http.Error(w, "Missing auth token", http.StatusUnauthorized)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing auth token"})
 			return
 		}
 
@@ -171,19 +157,20 @@ func jwtMiddleware(next http.Handler) http.Handler {
 		})
 
 		if err != nil || !token.Valid {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			return
 		}
-		
+
 		var user User
 		row := db.QueryRow("SELECT id, email, avatar_url FROM users WHERE id = $1", claims.UserID)
 		if err := row.Scan(&user.ID, &user.Email, &user.AvatarURL); err != nil {
-			http.Error(w, "User not found", http.StatusUnauthorized)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 			return
 		}
-		
+
 		// Add user to context
-		ctx := context.WithValue(r.Context(), userContextKey, user)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+		c.Set("user", user)
+		c.Next()
+	}
 }
+

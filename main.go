@@ -4,13 +4,13 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
+	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
-	"github.com/rs/cors"
 )
 
 var db *sql.DB
@@ -26,38 +26,43 @@ func main() {
 	initDB()
 	defer db.Close()
 
-	// Create a new router
-	r := mux.NewRouter()
-
-	// Serve static files (avatars)
-	fs := http.FileServer(http.Dir("./uploads"))
-	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
-
-
-	// API routes
-	api := r.PathPrefix("/api").Subrouter()
-	api.HandleFunc("/signup", signupHandler).Methods("POST")
-	api.HandleFunc("/login", loginHandler).Methods("POST")
-	api.HandleFunc("/home", getHomeContentHandler).Methods("GET")
-
-	// Protected routes
-	protected := api.PathPrefix("/").Subrouter()
-	protected.Use(jwtMiddleware) // Apply JWT middleware
-	protected.HandleFunc("/dashboard", dashboardHandler).Methods("GET")
-	protected.HandleFunc("/upload-avatar", uploadAvatarHandler).Methods("POST")
-
+	// Create a new Gin router. Default() includes logger and recovery middleware.
+	router := gin.Default()
 
 	// CORS configuration
-	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:5173", "https://reactlogo-frontend.vercel.app"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization"},
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:5173"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
-	})
-	handler := c.Handler(r)
+		MaxAge:           12 * time.Hour,
+	}))
+
+	// Serve static files (avatars)
+	router.Static("/uploads", "./uploads")
+
+	// API routes group
+	api := router.Group("/api")
+	{
+		api.POST("/signup", signupHandler)
+		api.POST("/login", loginHandler)
+		api.GET("/home", getHomeContentHandler)
+
+		// Protected routes group
+		protected := api.Group("/")
+		protected.Use(jwtMiddleware()) // Apply JWT middleware
+		{
+			protected.GET("/dashboard", dashboardHandler)
+			protected.POST("/upload-avatar", uploadAvatarHandler)
+		}
+	}
 
 	fmt.Println("Server starting on port 8080...")
-	log.Fatal(http.ListenAndServe(":8080", handler))
+	// Start the server
+	if err := router.Run(":8080"); err != nil {
+		log.Fatal("Failed to run server:", err)
+	}
 }
 
 func initDB() {
