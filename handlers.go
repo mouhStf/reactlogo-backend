@@ -14,22 +14,22 @@ import (
 
 var jwtKey = []byte(os.Getenv("JWT_SECRET"))
 
-// signupHandler creates a new user
 func signupHandler(c *gin.Context) {
-	var creds Credentials
-	if err := c.BindJSON(&creds); err != nil {
+	var user User
+	if err := c.BindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(creds.Password), 8)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), 8)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 		return
 	}
 
-	println("creds", creds.Email, creds.Password)
-	_, err = db.Exec("INSERT INTO users (email, password) VALUES ($1, $2)", creds.Email, string(hashedPassword))
+	_, err = db.Exec(
+		"INSERT INTO users (prenom, nom, telephone, email, password) VALUES ($1, $2, $3, $4, $5)",
+		user.Prenom, user.Nom, user.Telephone, user.Email, string(hashedPassword))
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
 		return
@@ -38,7 +38,6 @@ func signupHandler(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "User created successfully"})
 }
 
-// loginHandler authenticates a user and returns a JWT
 func loginHandler(c *gin.Context) {
 	var creds Credentials
 	if err := c.BindJSON(&creds); err != nil {
@@ -76,17 +75,24 @@ func loginHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
 
-// getHomeContentHandler serves dynamic content for the home page
 func getHomeContentHandler(c *gin.Context) {
-	media := []Media{
-		{ID: 1, Title: "Exploring the Alps with Gin", Type: "image", URL: "https://placehold.co/600x400/000000/FFFFFF?text=Alps"},
-		{ID: 2, Title: "Ocean Documentary", Type: "video", URL: "https://placehold.co/600x400/0000FF/FFFFFF?text=Video"},
-		{ID: 3, Title: "Annual Report 2024", Type: "document", URL: "#"},
+
+	media := []Post{
+		{ID: 1, Title: "Exploring the Alps with Gin", Medias: []Media{
+			{Type: "image", Url: "https://placehold.co/600x400/000000/FFFFFF?text=Alps"},
+		}},
+		{ID: 2, Title: "Ocean Documentary", Medias: []Media{
+			{Type: "video", Url: "https://placehold.co/600x400/0000FF/FFFFFF?text=Video"},
+		},},
+			{ID: 3, Title: "Annual Report 2024", Medias: []Media{
+				{Type: "document", Url: "#"},
+			},
+		},
 	}
+
 	c.JSON(http.StatusOK, media)
 }
 
-// dashboardHandler serves user-specific data
 func dashboardHandler(c *gin.Context) {
 	userCtx, exists := c.Get("user")
 	if !exists {
@@ -94,16 +100,21 @@ func dashboardHandler(c *gin.Context) {
 		return
 	}
 
-	user, ok := userCtx.(User)
+	_user, ok := userCtx.(User)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user type in context"})
 		return
 	}
 
+	user, err := getUserById(_user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user type in context"})
+		return
+	} 
+
 	c.JSON(http.StatusOK, user)
 }
 
-// uploadAvatarHandler handles user avatar uploads
 func uploadAvatarHandler(c *gin.Context) {
 	userCtx, exists := c.Get("user")
 	if !exists {

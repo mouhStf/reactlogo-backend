@@ -16,20 +16,16 @@ import (
 var db *sql.DB
 
 func main() {
-	// Load environment variables from .env file
 	err := godotenv.Load()
 	if err != nil {
 		log.Println("No .env file found, using system environment variables")
 	}
 
-	// Initialize database connection
 	initDB()
 	defer db.Close()
 
-	// Create a new Gin router. Default() includes logger and recovery middleware.
 	router := gin.Default()
 
-	// CORS configuration
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{
 			"http://localhost:3000",
@@ -43,10 +39,10 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Serve static files (avatars)
+	// Serve static files
 	router.Static("/uploads", "./uploads")
+	router.Static("/public", "./public")
 
-	// API routes group
 	api := router.Group("/api")
 	{
 		api.POST("/signup", signupHandler)
@@ -63,7 +59,7 @@ func main() {
 	}
 
 	fmt.Println("Server starting on port 8080...")
-	// Start the server
+
 	if err := router.Run(":8080"); err != nil {
 		log.Fatal("Failed to run server:", err)
 	}
@@ -89,6 +85,9 @@ func initDB() {
 	createTableQuery := `
     CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
+	      prenom TEXT,
+	      nom TEXT,
+	      telephone TEXT,
         email TEXT NOT NULL UNIQUE,
         password TEXT NOT NULL,
         avatar_url TEXT

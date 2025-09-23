@@ -11,8 +11,11 @@ type Credentials struct {
 // User struct for database
 type User struct {
 	ID        int     `json:"id"`
+	Prenom    string  `json:"prenom"`
+	Nom       string  `json:"nom"`
+	Telephone string  `json:"telephone"`
 	Email     string  `json:"email"`
-	Password  string  `json:"-"` // Omit from JSON responses
+	Password  string  `json:"password"` // Omit from JSON responses
 	AvatarURL *string `json:"avatarUrl"`
 }
 
@@ -22,10 +25,14 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// Media struct for home page content
 type Media struct {
-	ID    int    `json:"id"`
-	Title string `json:"title"`
-	Type  string `json:"type"` // "image", "video", "document"
-	URL   string `json:"url"`
+	Type string `json:"type"`
+	Url  string `json:"url"`
+}
+
+type Post struct {
+	ID      int     `json:"id"`
+	Title   string  `json:"title"`
+	Content string  `json:"content"`
+	Medias  []Media `json:"medias"`
 }
