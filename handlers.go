@@ -75,24 +75,6 @@ func loginHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
 
-func getHomeContentHandler(c *gin.Context) {
-
-	media := []Post{
-		{ID: 1, Title: "Exploring the Alps with Gin", Medias: []Media{
-			{Type: "image", Url: "https://placehold.co/600x400/000000/FFFFFF?text=Alps"},
-		}},
-		{ID: 2, Title: "Ocean Documentary", Medias: []Media{
-			{Type: "video", Url: "https://placehold.co/600x400/0000FF/FFFFFF?text=Video"},
-		},},
-			{ID: 3, Title: "Annual Report 2024", Medias: []Media{
-				{Type: "document", Url: "#"},
-			},
-		},
-	}
-
-	c.JSON(http.StatusOK, media)
-}
-
 func dashboardHandler(c *gin.Context) {
 	userCtx, exists := c.Get("user")
 	if !exists {
@@ -185,3 +167,27 @@ func jwtMiddleware() gin.HandlerFunc {
 	}
 }
 
+func blogHandler(c *gin.Context) {
+	articles, err := getArticles()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
+	c.JSON(http.StatusOK, articles)
+}
+
+func getBlogPost(c *gin.Context) {
+	id := c.Param("id")
+	article, error := getBlogPostData(id)
+	if error != nil {
+		c.JSON(404, gin.H{"error": error.Error()})
+	}
+	c.JSON(http.StatusOK, article)
+}
+
+func getBlogPostSide(c *gin.Context) {
+	side, err := getBlogPostSideData()
+	if err != nil {
+		c.JSON(404, gin.H{"error": err.Error()})
+	}
+	c.JSON(http.StatusOK, side)
+}

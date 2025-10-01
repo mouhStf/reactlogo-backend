@@ -1,0 +1,11 @@
+id,prenom,nom,telephone,email,password,avatar_url,author_id,does_login
+1,"Aïssatou","Diop","771234567","aissatou.diop@email.com","hash_motdepasse_securise_1","1.jpg",1,true
+2,"Omar","Ndiaye","781234567","omar.ndiaye@email.com","hash_motdepasse_securise_2","2.jpg",2,true
+3,"Fatou","Sow","761234567","fatou.sow@email.com","hash_motdepasse_securise_3","3.jpg",3,true
+4,"Mariama","Ba","701234567","mariama.ba@email.com","hash_motdepasse_securise_4","4.jpg",,true
+5,"Cheikh","Fall","751234567","cheikh.fall@email.com","hash_motdepasse_securise_5","5.jpg",,false
+6,"Ndeye","Gueye","778901234","ndeye.gueye@email.com","hash_motdepasse_securise_6","6.jpg",,true
+7,"Jean-Pierre","Faye","789012345","jp.faye@email.com","hash_motdepasse_securise_7","7.jpg",4,true
+8,"Binta","Diallo","769012345","binta.diallo@email.com","hash_motdepasse_securise_8","8.jpg",,false
+9,"Moussa","Touré","775556677","moussa.toure@email.com","hash_motdepasse_securise_9","9.jpg",,true
+10,"Aminata","Sarr","784443322","aminata.sarr@email.com","hash_motdepasse_securise_10","10.jpg",,true
