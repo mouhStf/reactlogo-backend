@@ -46,6 +46,7 @@ type Article struct {
 	AuthorID int      `json:"authorId"`
 	Title    string   `json:"title"`
 	Category string   `json:"category"`
+	CategoryID int   `json:"categoryId"`
 	Image    *string  `json:"image"`
 	Date     string   `json:"date"`
 	Summary  *string  `json:"summary"`
@@ -131,4 +132,9 @@ type BlogPostSide struct {
 	Categories []ArticleCategory `json:"categories"`
 	Tags       []Tag             `json:"tags"`
 	Recents    []Article         `json:"recents"`
+}
+
+type CategoriesTags struct {
+	Categories []ArticleCategory `json:"categories"`
+	Tags       []Tag             `json:"tags"`
 }

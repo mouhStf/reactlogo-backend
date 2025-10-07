@@ -167,12 +167,27 @@ func jwtMiddleware() gin.HandlerFunc {
 	}
 }
 
+type BlogRequestInfo struct {
+	Page int `form:"page"`
+	Category int `form:"category"`
+	Tags []int `form:"tag"`
+}
+
 func blogHandler(c *gin.Context) {
-	articles, err := getArticles()
+	var info BlogRequestInfo
+	err := c.ShouldBind(&info)
+	if err != nil {
+		info.Page = 1
+	}
+	if info.Page <= 0 {
+		info.Page = 1
+	}
+
+	articles, s, err := getArticles(info.Category, info.Tags, (info.Page-1)*12, 12)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
-	c.JSON(http.StatusOK, articles)
+	c.JSON(http.StatusOK, gin.H{"articles": articles, "pages": (s / 12)+1})
 }
 
 func getBlogPost(c *gin.Context) {
@@ -190,4 +205,62 @@ func getBlogPostSide(c *gin.Context) {
 		c.JSON(404, gin.H{"error": err.Error()})
 	}
 	c.JSON(http.StatusOK, side)
+}
+
+func getSearchHeadDatas(c *gin.Context) {
+	cs, err := getCategories()
+	if err != nil {
+		c.JSON(404, gin.H{"error": err.Error()})
+	}
+	ts, err := getTags()
+	if err != nil {
+		c.JSON(404, gin.H{"error": err.Error()})
+	}
+
+	data := map[string]interface{}{
+		"categories":  cs,
+		"tags": ts,
+	}
+	c.JSON(http.StatusOK, data)
+}
+
+func getCategoriesHandle(c *gin.Context) {
+	cs, err := getCategories()
+	if err != nil {
+		c.JSON(404, gin.H{"error": err.Error()})
+	}
+
+	c.JSON(http.StatusOK, cs)
+}
+
+func getTagsHandle(c *gin.Context) {
+	ts, err := getTags()
+	if err != nil {
+		c.JSON(404, gin.H{"error": err.Error()})
+	}
+
+	c.JSON(http.StatusOK, ts)
+}
+
+type ArticleSearchRequestInfo struct {
+	Term string `form:"term"`
+	Category int `form:"category"`
+	Tags []int `form:"tag"`
+	Page int `form:"page"`
+}
+
+func articleSearchHandler(c *gin.Context) {
+	var info ArticleSearchRequestInfo
+	err := c.ShouldBind(&info)
+	if err != nil {
+		info.Term = "0"
+	}
+	if info.Page <= 0 {
+		info.Page = 1
+	}
+	ars, nRows, err := searchArticle(info.Term, info.Category, info.Tags, (info.Page-1)*12, 12)
+	if err != nil {
+		c.JSON(404, gin.H{"error": err.Error()})
+	}
+	c.JSON(http.StatusOK, gin.H{"articles": ars, "pages": (nRows / 12)+1} )
 }

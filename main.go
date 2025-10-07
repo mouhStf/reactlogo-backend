@@ -59,6 +59,9 @@ func main() {
 		api.GET("/blog", blogHandler)
 		api.GET("/article/:id", getBlogPost)
 		api.GET("/article/side", getBlogPostSide)
+		api.GET("/blog/categories", getCategoriesHandle)
+		api.GET("/blog/tags", getTagsHandle)
+		api.GET("/blog/search", articleSearchHandler)
 
 		// Protected routes group
 		protected := api.Group("/")

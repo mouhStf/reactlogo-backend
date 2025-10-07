@@ -2,12 +2,15 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"encoding/json"
-	"time"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/lib/pq"
 )
 
 var db *sql.DB
@@ -17,6 +20,7 @@ func initDB() {
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL environment variable is not set")
 	}
+	
 
 	db, err = sql.Open("postgres", dbURL)
 	if err != nil {
@@ -163,32 +167,93 @@ func formatFrenchDate(dt string) string {
 	return formatted
 }
 
-func getArticles() ([]Article, error) {
+func getCategories() ([]ArticleCategory, error){
+	rows, err := db.Query("select id, name from article_categories")
+	if err != nil {
+		return nil, fmt.Errorf("Getting categories failed: %v", err)
+	}
+	defer rows.Close()
+
+	var categories []ArticleCategory
+	for rows.Next() {
+		var c ArticleCategory
+		if err := rows.Scan(&c.ID, &c.Name); err != nil {
+			return nil, fmt.Errorf("Could not retrieve a category row: %v", err)
+		}
+		categories = append(categories, c)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %v", err)
+	}
+
+	return categories, nil
+}
+
+func getTags() ([]Tag, error){
+	rows, err := db.Query("select id, name from article_tags")
+	if err != nil {
+		return nil, fmt.Errorf("Getting tags failed: %v", err)
+	}
+	defer rows.Close()
+
+	var tags []Tag
+	for rows.Next() {
+		var t Tag
+		if err := rows.Scan(&t.ID, &t.Name); err != nil {
+			return nil, fmt.Errorf("Could not retrieve a tag row: %v", err)
+		}
+		tags = append(tags, t)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %v", err)
+	}
+
+	return tags, nil
+}
+
+func getTableSize() (int, error){
+	var r int
+	err := db.QueryRow("select count(*) from articles").Scan(&r)
+	if err != nil {
+		return -1, fmt.Errorf("query failed: %v", err)
+	}
+	return r, nil
+}
+
+func getArticles(category int, tags []int, offset int, siz int) ([]Article, int, error) {
+
 	rows, err := db.Query(`
-		SELECT a.id, a.title, ac."name", a.image, a.date, a.summary
+		SELECT a.id, a.title, a.category_id, a.image, a.date, a.summary, COUNT(*) OVER()
 		FROM articles a
 		left join article_categories ac  ON a.category_id = ac.id
-		group by a.id, ac."name" 
-		ORDER BY a.date DESC
-		`)
+		left join article_tag_links atl on atl.article_id = a.id
+		where ($3::int[] is null or atl.tag_id = any($3::int[])) and ($4 = 0 or a.category_id = $4)
+		group by a.id
+		order by a.date desc
+		OFFSET $1 ROWS FETCH NEXT $2 ROWS ONLY
+		`, offset, siz, pq.Array(tags), category)
 	if err != nil {
-		return nil, fmt.Errorf("query failed: %v", err)
+		return nil, 0, fmt.Errorf("query failed: %v", err)
 	}
 	defer rows.Close()
 
 	var articles []Article
+	var rowCount int
 	for rows.Next() {
 		var a Article
 
 		if err := rows.Scan(
 			&a.ID,
 			&a.Title,
-			&a.Category,
+			&a.CategoryID,
 			&a.Image,
 			&a.Date,
 			&a.Summary,
+			&rowCount,
 		); err != nil {
-			return nil, fmt.Errorf("scan failed: %v", err)
+			return nil, rowCount, fmt.Errorf("scan failed: %v", err)
 		}
 		a.Date = formatFrenchDate(a.Date)
 
@@ -196,10 +261,10 @@ func getArticles() ([]Article, error) {
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows error: %v", err)
+		return nil, rowCount, fmt.Errorf("rows error: %v", err)
 	}
 
-	return articles, nil
+	return articles, rowCount, nil
 }
 
 
@@ -342,9 +407,9 @@ func getBlogPostData(id string) (*BlogPost, error) {
 	}
 	defer sRows.Close()
 
+	var tagsShared, textRank, simScore int
 	for sRows.Next() {
 		var a Article
-		var tagsShared, textRank, simScore int // Just here for now
 		if err := sRows.Scan(
 			&a.ID, &a.Image, &a.Date, &a.Title, &a.Summary, &a.Category, &tagsShared, &textRank, &simScore); err != nil {
 			return nil, fmt.Errorf("scan failed: %v", err)
@@ -360,7 +425,6 @@ func getBlogPostData(id string) (*BlogPost, error) {
 
 func getBlogPostSideData() (*BlogPostSide, error){
 	var b BlogPostSide
-
 
 	rows, err := db.Query("select c.id, c.name from article_categories c")
 	if err != nil {
@@ -394,4 +458,105 @@ func getBlogPostSideData() (*BlogPostSide, error){
 	}
 
 	return &b, nil
+}
+
+func searchArticle(pattern string, category int, tags []int, page int, pageSize int) ([]Article, int, error) {
+	var ars []Article
+	if category < 1 {
+		category = -1
+	}
+
+	rows, err := db.Query(searchRequest(category, tags), pattern, page, pageSize)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query failed: %v", err)
+	}
+	defer rows.Close()
+
+	var tagMatch int
+	var rank  float64
+	var fuzzyScore float64
+	var numberRows int
+	for rows.Next() {
+		var a Article
+
+		if err := rows.Scan(
+			&a.ID, &a.Image, &a.Title, &a.Summary,  &a.Category, &a.Date, &tagMatch, &rank, &fuzzyScore, &numberRows); err != nil {
+			return nil, numberRows, fmt.Errorf("scan failed: %v", err)
+		}
+		a.Date = formatFrenchDate(a.Date)
+
+		ars = append(ars, a)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, numberRows, fmt.Errorf("rows error: %v", err)
+	}
+
+	return ars, numberRows, nil
+}
+
+func searchRequest(category int, tags []int) string {
+
+	ct := "null"
+	if category != 0 {
+		ct = strconv.Itoa(category)
+	}
+
+	tgs := "null"
+	if len(tags) > 0 {
+		tgs = "ARRAY["
+		for _,v := range tags {
+			tgs += strconv.Itoa(v) + ","
+		}
+		tgs = tgs[:len(tgs)-1] + "]"
+	}
+
+	req := `
+	WITH params AS (
+	SELECT
+	unaccent($1) AS query,
+	`+ct+`::int AS category_filter,
+	`+tgs+`::int[] AS tag_filter
+	),
+	tag_matches AS (
+	SELECT
+	a.id,
+	COUNT(atl.tag_id) AS tag_match_count
+	FROM articles a
+	JOIN article_tag_links atl ON a.id = atl.article_id
+	JOIN params p ON TRUE
+	WHERE p.tag_filter IS NULL OR p.tag_filter = '{}' OR atl.tag_id = ANY(p.tag_filter)
+	GROUP BY a.id
+	)
+	SELECT
+	a.id,
+	a.image,
+	a.title,
+	a.summary,
+	cat.name,
+	a.date,
+	COALESCE(tc.tag_match_count, 0) AS tag_match_count,
+	ts_rank_cd(a.search_tsv, plainto_tsquery('fr_unaccent', p.query)) AS rank,
+	similarity(unaccent(a.title), p.query) AS fuzzy_score,
+	COUNT(*) OVER() AS total_count
+	FROM articles a
+	join article_categories cat on cat.id = a.category_id 
+	JOIN params p ON TRUE
+	LEFT JOIN tag_matches tc ON a.id = tc.id
+	WHERE
+	(p.category_filter IS NULL OR a.category_id = p.category_filter)
+	AND (
+	a.search_tsv @@ plainto_tsquery('fr_unaccent', p.query)
+	OR a.search_tsv @@ to_tsquery('fr_unaccent', p.query || ':*')
+	OR similarity(unaccent(a.title), p.query) > 0.2
+	)
+	ORDER BY
+	COALESCE(tc.tag_match_count, 0) DESC,   -- More matched tags = higher rank
+	rank DESC,
+	fuzzy_score DESC,
+	a.date DESC
+	OFFSET $2 ROWS FETCH NEXT $3 ROWS only
+	`
+
+	return req
 }
